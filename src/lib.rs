@@ -1,6 +1,7 @@
 
 use pyo3::prelude::*;
 
+use std::cell::OnceCell;
 use std::collections::HashSet;
 
 pub type Shape = (usize, usize);
@@ -17,6 +18,20 @@ pub struct Bot {
     pub food: Vec<Pos>,
     pub shape: Shape,
     pub is_blue: bool,
+    #[pyo3(from_py_with = "emptyonce")]
+    pub _say: OnceCell<String>
+}
+
+fn emptyonce(_var: &PyAny) -> PyResult<OnceCell<String>> {
+    Ok(OnceCell::new())
+}
+
+impl Bot {
+    pub fn say(&self, text: &str) {
+        self._say.get_or_init(|| {
+            text.to_string()
+        });
+    }
 }
 
 #[derive(FromPyObject)]
@@ -42,11 +57,21 @@ macro_rules! pelita_player {
         use pyo3::prelude::*;
 
         #[pyfunction]
-        fn r#move(bot: PyObject, state: PyObject) -> PyResult<Pos> {
+        fn r#move(mut pybot: PyObject, state: PyObject) -> PyResult<Pos> {
+            // ignoring the dict state that is passed from Pelita
             Python::with_gil(|py| {
-                let rustbot: Result<Bot, _> = bot.extract(py);
+
+                let rustbot: Result<Bot, _> = pybot.extract(py);
                 match rustbot {
-                    Ok(bot) => Ok($move_fn(bot, state)),
+                    Ok(b) => {
+                        let result = $move_fn(&b, state);
+
+                        if let Some(text) = b._say.get() {
+                            pybot.setattr(py, "_say", text);
+                        }
+
+                        Ok(result)
+                    },
                     Err(error) => panic!("Problem: {:?}", error),
                 }
             })
